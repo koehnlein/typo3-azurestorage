@@ -54,6 +54,17 @@
                             </config>
                         </TCEforms>
                     </accountKey>
+                    <sftpIdentifier>
+                        <TCEforms>
+                            <label>SFTP identifier</label>
+                            <description>Optional SFTP identifier (e.g. user@host) to use SFTP via CLI instead of the azure API for some actions</description>
+                            <config>
+                                <type>input</type>
+                                <size>30</size>
+                                <eval>trim</eval>
+                            </config>
+                        </TCEforms>
+                    </sftpIdentifier>
                 </el>
             </ROOT>
         </general>
