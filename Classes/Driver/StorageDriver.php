@@ -16,6 +16,8 @@ use MicrosoftAzure\Storage\Blob\Models\SetBlobPropertiesOptions;
 use MicrosoftAzure\Storage\Blob\Models\SetBlobPropertiesResult;
 use MicrosoftAzure\Storage\Common\Internal\Utilities;
 use Psr\Http\Message\StreamInterface;
+use Psr\Log\LoggerAwareInterface;
+use Psr\Log\LoggerAwareTrait;
 use TYPO3\CMS\Core\Cache\CacheManager;
 use TYPO3\CMS\Core\Cache\Frontend\VariableFrontend;
 use TYPO3\CMS\Core\Resource\Driver\AbstractHierarchicalFilesystemDriver;
@@ -26,8 +28,9 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Resource\StorageRepository;
 
 
-class StorageDriver extends AbstractHierarchicalFilesystemDriver
+class StorageDriver extends AbstractHierarchicalFilesystemDriver implements LoggerAwareInterface
 {
+    use LoggerAwareTrait;
 
     /**
      * @var string
@@ -1391,6 +1394,7 @@ class StorageDriver extends AbstractHierarchicalFilesystemDriver
 
         $execReturn = exec($cmd, $output, $result_code);
         if ($execReturn === false || $result_code !== 0) {
+            $this->logger?->error('SFTP error', ['cmd' => $cmd, 'output' => $output]);
             throw new \Exception('SFTP error', 1653038631);
         }
     }
