@@ -16,6 +16,8 @@ use MicrosoftAzure\Storage\Blob\Models\SetBlobPropertiesOptions;
 use MicrosoftAzure\Storage\Blob\Models\SetBlobPropertiesResult;
 use MicrosoftAzure\Storage\Common\Internal\Utilities;
 use Psr\Http\Message\StreamInterface;
+use Psr\Log\LoggerAwareInterface;
+use Psr\Log\LoggerAwareTrait;
 use TYPO3\CMS\Core\Cache\CacheManager;
 use TYPO3\CMS\Core\Cache\Frontend\VariableFrontend;
 use TYPO3\CMS\Core\Resource\Driver\AbstractHierarchicalFilesystemDriver;
@@ -26,8 +28,9 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Resource\StorageRepository;
 
 
-class StorageDriver extends AbstractHierarchicalFilesystemDriver
+class StorageDriver extends AbstractHierarchicalFilesystemDriver implements LoggerAwareInterface
 {
+    use LoggerAwareTrait;
 
     /**
      * @var string
@@ -218,7 +221,12 @@ class StorageDriver extends AbstractHierarchicalFilesystemDriver
         $parentFolderIdentifier = $this->normalizeFolderName($parentFolderIdentifier);
         $newFolderName = $this->normalizeFolderName($newFolderName);
         $newFolderIdentifier = $this->normalizeFolderName($parentFolderIdentifier . $newFolderName);
-        $this->createBlockBlob($newFolderIdentifier);
+
+        if ($this->supportsSftp()) {
+            $this->executeSftp(sprintf('mkdir "%s"', $newFolderIdentifier));
+        } else {
+            $this->createBlockBlob($newFolderIdentifier);
+        }
 
         return $newFolderIdentifier;
     }
@@ -335,11 +343,27 @@ class StorageDriver extends AbstractHierarchicalFilesystemDriver
             $contentType = $fileExtensionToMimeTypeMapping[$pathInfo['extension']];
         }
 
-        $options = new CreateBlockBlobOptions();
-        $options->setContentType($contentType);
-        $options->setCacheControl($this->cacheControl);
+        if ($this->supportsSftp()) {
+            $this->executeSftp(
+                sprintf(
+                    'put "%s" "%s"',
+                    $localFilePath,
+                    $fileIdentifier
+                )
+            );
 
-        $this->createBlockBlob($fileIdentifier, fopen($localFilePath, 'rb'), $options);
+            $options = new SetBlobPropertiesOptions();
+            $options->setContentType($contentType);
+            $options->setCacheControl($this->cacheControl);
+
+            $this->blobService->setBlobProperties($this->container, $fileIdentifier, $options);
+        } else {
+            $options = new CreateBlockBlobOptions();
+            $options->setContentType($contentType);
+            $options->setCacheControl($this->cacheControl);
+
+            $this->createBlockBlob($fileIdentifier, fopen($localFilePath, 'rb'), $options);
+        }
 
         if ($removeOriginal === true) {
             @unlink($localFilePath);
@@ -1341,5 +1365,37 @@ class StorageDriver extends AbstractHierarchicalFilesystemDriver
     protected function isSubSubFolder($folderToCheck, $parentFolderIdentifier)
     {
         return substr_count($folderToCheck, '/') > substr_count($parentFolderIdentifier, '/') + 1;
+    }
+
+    /**
+     * Check if an "SFTP identifier" is configured
+     *
+     * @return bool
+     */
+    protected function supportsSftp(): bool
+    {
+        return (bool)$this->configuration['sftpIdentifier'];
+    }
+
+    /**
+     * Execute a single SFTP command
+     *
+     * @param string $sftpCommand
+     * @return void
+     * @throws \Throwable
+     */
+    protected function executeSftp(string $sftpCommand)
+    {
+        $cmd = sprintf(
+            'echo %s | sftp %s',
+            escapeshellarg($sftpCommand),
+            $this->configuration['sftpIdentifier']
+        );
+
+        $execReturn = exec($cmd, $output, $result_code);
+        if ($execReturn === false || $result_code !== 0) {
+            $this->logger?->error('SFTP error', ['cmd' => $cmd, 'output' => $output]);
+            throw new \Exception('SFTP error', 1653038631);
+        }
     }
 }
